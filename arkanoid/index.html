@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rust Arkanoid — WebAssembly Retro Arcade</title>
+    <meta name="description" content="Play the Rust Arkanoid retro arcade game compiled to WebAssembly. A remake of a 2001 DirectDraw classic.">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-color: #0c0c0e;
+            --card-bg: rgba(20, 20, 25, 0.85);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --primary: #f59e0b; /* retro amber */
+            --primary-glow: rgba(245, 158, 11, 0.35);
+            --text-color: #e4e4e7;
+            --text-muted: #a1a1aa;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 50% 20%, rgba(245, 158, 11, 0.1) 0%, transparent 60%),
+                radial-gradient(circle at 10% 80%, rgba(59, 130, 246, 0.05) 0%, transparent 40%);
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            overflow-x: hidden;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 900;
+            font-size: 2.5rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, #fff 30%, var(--primary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px var(--primary-glow);
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            font-size: 1rem;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        main {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2rem;
+            max-width: 100%;
+        }
+
+        /* Glassmorphism Container for the Canvas */
+        .game-container {
+            position: relative;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 12px;
+            box-shadow: 
+                0 20px 50px rgba(0, 0, 0, 0.5),
+                0 0 0 1px var(--card-border),
+                0 0 20px var(--primary-glow);
+            transition: box-shadow 0.3s ease;
+        }
+
+        .game-container:hover {
+            box-shadow: 
+                0 25px 60px rgba(0, 0, 0, 0.6),
+                0 0 0 1px rgba(255, 255, 255, 0.12),
+                0 0 30px rgba(245, 158, 11, 0.5);
+        }
+
+        /* Canvas Wrapper to enforce exact aspect ratio size */
+        .canvas-wrapper {
+            width: 640px;
+            height: 480px;
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        #glcanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            outline: none;
+        }
+
+        /* Instructions and controls panel */
+        .panel {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            width: 664px;
+            max-width: 100%;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .panel-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+            padding-bottom: 0.5rem;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+
+        .control-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+        }
+
+        .control-action {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .key-caps {
+            display: flex;
+            gap: 0.25rem;
+        }
+
+        .key-cap {
+            font-family: 'Orbitron', monospace;
+            background: linear-gradient(180deg, #27272a 0%, #18181b 100%);
+            border: 1px solid #3f3f46;
+            border-bottom: 3px solid #27272a;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #fff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+        }
+
+        .info-note {
+            text-align: center;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 1rem;
+        }
+
+        .info-note a {
+            color: var(--primary);
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        .info-note a:hover {
+            color: #fff;
+            text-decoration: underline;
+        }
+
+        footer {
+            margin-top: 3rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            opacity: 0.7;
+        }
+
+        /* Focus prompt overlay */
+        .click-to-play-overlay {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            right: 12px;
+            bottom: 12px;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            z-index: 10;
+            cursor: pointer;
+            transition: opacity 0.3s ease;
+        }
+
+        .click-to-play-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .play-button {
+            font-family: 'Orbitron', sans-serif;
+            background: linear-gradient(135deg, var(--primary) 0%, #d97706 100%);
+            border: none;
+            border-radius: 30px;
+            color: #000;
+            font-weight: 900;
+            font-size: 1.2rem;
+            padding: 1rem 2.5rem;
+            cursor: pointer;
+            box-shadow: 0 0 20px var(--primary-glow);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 1rem;
+        }
+
+        .play-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px var(--primary);
+        }
+
+        .click-to-play-overlay p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Arkanoid</h1>
+        <div class="subtitle" id="subtitle-id">Rust &bull; WebAssembly Retro Remake</div>
+    </header>
+
+    <main>
+        <div class="game-container" id="game-card">
+            <!-- Click-to-play overlay because of audio autoplay restrictions and keyboard focus -->
+            <div class="click-to-play-overlay" id="overlay" onclick="startGame()">
+                <button class="play-button" id="start-btn">Start Game</button>
+                <p>Click to focus & play with audio</p>
+            </div>
+
+            <div class="canvas-wrapper">
+                <canvas id="glcanvas" tabindex="1"></canvas>
+            </div>
+        </div>
+
+        <section class="panel" id="controls-panel">
+            <h2 class="panel-title" id="controls-title">System Controls</h2>
+            <div class="controls-grid">
+                <div class="control-item">
+                    <span class="control-action">Move Paddle Left/Right</span>
+                    <div class="key-caps">
+                        <kbd class="key-cap">&larr;</kbd>
+                        <kbd class="key-cap">&rarr;</kbd>
+                    </div>
+                </div>
+                <div class="control-item">
+                    <span class="control-action">Launch Ball</span>
+                    <div class="key-caps">
+                        <kbd class="key-cap">Space</kbd>
+                    </div>
+                </div>
+                <div class="control-item">
+                    <span class="control-action">Pause Game</span>
+                    <div class="key-caps">
+                        <kbd class="key-cap">P</kbd>
+                    </div>
+                </div>
+                <div class="control-item">
+                    <span class="control-action">Quit Game</span>
+                    <div class="key-caps">
+                        <kbd class="key-cap">Esc</kbd>
+                    </div>
+                </div>
+            </div>
+            <p class="info-note" id="note-id">
+                Reconstructed from the 2001 classic. High scores are saved to your browser's local storage.
+            </p>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2026 Rust Arkanoid Port. Built with Macroquad & WebAssembly.</p>
+    </footer>
+
+    <!-- Engine + plugin JS, taken from the exact crate versions in Cargo.lock:
+         gl.js          <- miniquad 0.4.10 (loader; defines miniquad_add_plugin/load)
+         sapp_jsutils.js<- sapp-jsutils 0.1.7 (JS<->Rust string objects)
+         audio.js       <- quad-snd 0.2.8 (sound mixer)
+         quad-storage.js<- quad-storage-sys 0.1.0 (localStorage high scores) -->
+    <script src="gl.js"></script>
+    <script src="sapp_jsutils.js"></script>
+    <script src="audio.js"></script>
+    <script src="quad-storage.js"></script>
+    <script>
+        // Start game function to hide overlay and load WASM
+        let gameLoaded = false;
+        function startGame() {
+            const overlay = document.getElementById('overlay');
+            overlay.classList.add('hidden');
+            
+            // Focus canvas
+            const canvas = document.getElementById('glcanvas');
+            canvas.focus();
+            
+            if (!gameLoaded) {
+                load("arkanoid.wasm");
+                gameLoaded = true;
+            }
+        }
+    </script>
+</body>
+</html>
